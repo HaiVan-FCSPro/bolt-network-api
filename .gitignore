@@ -1,0 +1,18 @@
+# Virtual Environment
+venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# SQLite database file (we use Postgres in production)
+bolt.db
+
+# Environment variables file
+.env
+
+# OS generated files
+.DS_Store
+Thumbs.db

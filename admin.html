@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOLT Admin - Thêm Điểm Dịch Vụ</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f6;
+            color: #333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        h1 {
+            color: #0056b3; /* BOLT Blue */
+            border-bottom: 2px solid #0056b3;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        .form-group input,
+        .form-group select {
+            width: 95%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        .form-group input[type="number"] {
+            /* Đảm bảo input số hoạt động tốt */
+            -moz-appearance: textfield;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 12px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .btn-submit:hover {
+            background-color: #0056b3;
+        }
+        #feedback {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            font-weight: 500;
+            display: none; /* Ẩn ban đầu */
+        }
+        #feedback.success {
+            background-color: #d4edda;
+            color: #155724;
+            display: block;
+        }
+        #feedback.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>🗺️ BOLT Admin - Thêm Điểm Dịch Vụ</h1>
+        <p>Sử dụng biểu mẫu này để nạp dữ liệu cho "Chiến dịch Bản đồ Số".</p>
+
+        <form id="admin-form">
+            <div class="form-group">
+                <label for="id">ID (Mã duy nhất, ví dụ: GAS004, EV002)</label>
+                <input type="text" id="id" name="id" required>
+            </div>
+            <div class="form-group">
+                <label for="ten">Tên điểm dịch vụ (Ví dụ: Cây xăng PetroVietnam)</label>
+                <input type="text" id="ten" name="ten" required>
+            </div>
+            <div class="form-group">
+                <label for="loai">Loại dịch vụ</label>
+                <select id="loai" name="loai" required>
+                    <option value="">-- Chọn loại --</option>
+                    <option value="xang_dau">⛽️ Xăng dầu</option>
+                    <option value="tram_sac">⚡️ Trạm sạc điện</option>
+                    <option value="sua_chua">🛠️ Sửa chữa / Gara</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="dia_chi">Địa chỉ (Không bắt buộc)</label>
+                <input type="text" id="dia_chi" name="dia_chi">
+            </div>
+            <div class="form-group">
+                <label for="vi_do">Vĩ độ (Latitude, ví dụ: 10.7769)</label>
+                <input type="number" step="any" id="vi_do" name="vi_do" required>
+            </div>
+            <div class="form-group">
+                <label for="kinh_do">Kinh độ (Longitude, ví dụ: 106.7009)</label>
+                <input type="number" step="any" id="kinh_do" name="kinh_do" required>
+            </div>
+            
+            <button type="submit" class="btn-submit">Thêm vào CSDL</button>
+        </form>
+
+        <div id="feedback"></div>
+    </div>
+
+    <script>
+        // Lắng nghe sự kiện "submit" của form
+        document.getElementById('admin-form').addEventListener('submit', async function(event) {
+            // Ngăn trình duyệt tải lại trang
+            event.preventDefault();
+
+            const form = event.target;
+            const feedbackEl = document.getElementById('feedback');
+            const submitButton = form.querySelector('.btn-submit');
+            
+            // 1. Thu thập dữ liệu từ form
+            const formData = new FormData(form);
+            const data = {
+                id: formData.get('id'),
+                ten: formData.get('ten'),
+                loai: formData.get('loai'),
+                dia_chi: formData.get('dia_chi') || null, // Gửi null nếu trống
+                vi_do: parseFloat(formData.get('vi_do')), // Chuyển sang số
+                kinh_do: parseFloat(formData.get('kinh_do')) // Chuyển sang số
+            };
+
+            // Vô hiệu hóa nút bấm trong khi gửi
+            submitButton.disabled = true;
+            submitButton.textContent = 'Đang xử lý...';
+            feedbackEl.style.display = 'none';
+
+            const API_URL = 'http://127.0.0.1:8000/diem-dich-vu';
+
+            try {
+                // 2. Gửi yêu cầu POST
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data), // Chuyển dữ liệu sang JSON
+                });
+
+                const result = await response.json();
+
+                // 3. Xử lý phản hồi
+                if (response.status === 201) { // 201 Created
+                    // THÀNH CÔNG
+                    feedbackEl.textContent = `THÀNH CÔNG: Đã thêm/cập nhật điểm '${result.ten}' (ID: ${result.id}).`;
+                    feedbackEl.className = 'success';
+                    form.reset(); // Xóa form để nhập liệu tiếp
+                    document.getElementById('id').focus(); // Di chuyển con trỏ về ô ID
+                } else if (response.status === 422) { // Lỗi Validation
+                    // LỖI DỮ LIỆU
+                    console.error('Lỗi Validation:', result);
+                    feedbackEl.textContent = `LỖI DỮ LIỆU: ${result.detail[0].msg}`;
+                    feedbackEl.className = 'error';
+                } else {
+                    // LỖI CHUNG
+                    console.error('Lỗi máy chủ:', result);
+                    feedbackEl.textContent = `LỖI MÁY CHỦ (${response.status}): ${result.detail}`;
+                    feedbackEl.className = 'error';
+                }
+
+            } catch (error) {
+                // LỖI MẠNG / KẾT NỐI
+                console.error('Lỗi kết nối:', error);
+                feedbackEl.textContent = 'LỖI KẾT NỐI: Không thể gọi API. Máy chủ có đang chạy không?';
+                feedbackEl.className = 'error';
+            } finally {
+                // Kích hoạt lại nút bấm
+                submitButton.disabled = false;
+                submitButton.textContent = 'Thêm vào CSDL';
+            }
+        });
+    </script>
+
+</body>
+</html>

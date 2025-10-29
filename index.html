@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Thử nghiệm API BOLT</title>
+</head>
+<body>
+    <h1>Thử nghiệm API BOLT</h1>
+    <p>Hãy mở Bảng điều khiển (Console) để xem kết quả.</p>
+    <p>(Nhấn F12 và chọn tab "Console")</p>
+
+    <script>
+        async function timDiemGanNhat() {
+            const params = new URLSearchParams({
+                'vi_do': 10.7800,
+                'kinh_do': 106.6990,
+                'loai_diem': 'xang_dau'
+            });
+
+            const url = `http://127.0.0.1:8000/tim-diem-gan-nhat?${params.toString()}`;
+            console.log(`Đang gọi API tại: ${url}`);
+
+            try {
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    console.error(`--- GỌI API THẤT BẠI ---`);
+                    console.error(`Mã trạng thái: ${response.status}`);
+                    console.error(`Nội dung lỗi: ${await response.text()}`);
+                    return;
+                }
+
+                const data = await response.json();
+                console.log("--- GỌI API THÀNH CÔNG ---");
+                console.log(data);
+                console.log("\n--- TÓM TẮT KẾT QUẢ ---");
+                console.log(`Đã tìm thấy: ${data.ten}`);
+                console.log(`Khoảng cách: ${data.khoang_cach_km} km`);
+
+            } catch (error) {
+                // Đây là nơi lỗi CORS sẽ bị bắt
+                console.error("--- LỖI KẾT NỐI (CÓ THỂ LÀ LỖI CORS) ---");
+                console.error("Không thể kết nối tới API. Chi tiết:", error.message);
+                console.warn("Nếu đây là lỗi 'CORS policy', đây là điều BÌNH THƯỜNG. Chúng ta cần cấu hình API server để cho phép việc này.");
+            }
+        }
+        timDiemGanNhat();
+    </script>
+</body>
+</html>

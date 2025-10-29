@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOLT Connect - Prototype v0.2</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+        /* Thanh điều khiển bộ lọc */
+        .filter-controls {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 8px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: flex;
+            gap: 5px;
+        }
+        .filter-btn {
+            padding: 10px 15px;
+            font-size: 16px;
+            font-weight: 600;
+            border: 2px solid #007bff;
+            background-color: #f0f8ff;
+            color: #007bff;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .filter-btn:hover, .filter-btn.active {
+            background-color: #007bff;
+            color: white;
+        }
+        #status-bar {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 5px 15px;
+            border-radius: 10px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="map"></div>
+    
+    <div class="filter-controls" id="controls">
+        <button class="filter-btn active" data-loai="xang_dau">⛽️ Xăng</button>
+        <button class="filter-btn" data-loai="tram_sac">⚡️ Sạc</button>
+        <button class="filter-btn" data-loai="sua_chua">🛠️ Sửa</button>
+    </div>
+    
+    <div id="status-bar">Đang tìm vị trí của bạn...</div>
+
+    <script>
+        // --- CẤU HÌNH ---
+        const API_URL_BASE = 'http://127.0.0.1:8000';
+        const DEFAULT_LAT = 10.7798;
+        const DEFAULT_LON = 106.7020;
+        const DEFAULT_ZOOM = 15;
+        const SEARCH_RADIUS_KM = 3.0; // Tăng bán kính tìm kiếm lên 3km
+
+        // Biến toàn cục để quản lý bản đồ và ghim
+        let map;
+        let userMarker;
+        let currentLat = DEFAULT_LAT;
+        let currentLon = DEFAULT_LON;
+        let activeFilter = 'xang_dau'; // Bộ lọc mặc định
+        const pinLayer = L.layerGroup(); // Layer để chứa các ghim
+        const statusBar = document.getElementById('status-bar');
+
+        // --- 1. KHỞI TẠO BẢN ĐỒ ---
+        function initMap(lat, lon) {
+            map = L.map('map').setView([lat, lon], DEFAULT_ZOOM);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Thêm layer ghim vào bản đồ
+            pinLayer.addTo(map);
+
+            // Đánh dấu vị trí người dùng
+            userMarker = L.circleMarker([lat, lon], {
+                color: '#007bff', fillColor: '#007bff', fillOpacity: 0.8, radius: 8
+            }).addTo(map).bindPopup(
+                `<b>Vị trí của bạn</b><br>` +
+                `Vĩ độ: <b>${lat.toFixed(5)}</b><br>` +`Kinh độ: <b>${lon.toFixed(5)}</b>`
+            );
+        }
+
+        // --- 2. GỌI API VÀ VẼ GHIM ---
+        async function fetchAndDrawPins(lat, lon, loai_diem) {
+            statusBar.textContent = `Đang tìm "${loai_diem}" xung quanh bạn...`;
+            
+            // Xóa các ghim cũ
+            pinLayer.clearLayers();
+
+            const params = new URLSearchParams({
+                'vi_do': lat,
+                'kinh_do': lon,
+                'ban_kinh_km': SEARCH_RADIUS_KM,
+                'loai_diem': loai_diem
+            });
+            const url = `${API_URL_BASE}/cac-diem-xung-quanh?${params.toString()}`;
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const danhSachDiem = await response.json();
+
+                // Lặp qua kết quả và vẽ ghim
+                danhSachDiem.forEach(diem => {
+                    const marker = L.marker([diem.vi_do, diem.kinh_do]);
+                    marker.bindPopup(
+                        `<b>${diem.ten}</b> (ID: ${diem.id})<br>` +
+                        `${diem.dia_chi || 'Không có địa chỉ'}<br>` +
+                        `Loại: ${diem.loai}<br>` +
+                        `<b>Cách: ${diem.khoang_cach_km} km</b>`
+                    );
+                    pinLayer.addLayer(marker); // Thêm ghim vào layer
+                });
+
+                statusBar.textContent = `Tìm thấy ${danhSachDiem.length} điểm "${loai_diem}".`;
+
+            } catch (error) {
+                console.error("Lỗi khi gọi API:", error);
+                statusBar.textContent = 'Lỗi khi tải dữ liệu API!';
+            }
+        }
+
+        // --- 3. XỬ LÝ NÚT BẤM LỌC ---
+        const controlButtons = document.querySelectorAll('.filter-btn');
+        controlButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                // Bỏ active tất cả các nút
+                controlButtons.forEach(btn => btn.classList.remove('active'));
+                // Active nút được chọn
+                button.classList.add('active');
+                
+                activeFilter = button.dataset.loai;
+                
+                // Gọi lại API với bộ lọc mới (tại vị trí hiện tại)
+                fetchAndDrawPins(currentLat, currentLon, activeFilter);
+            });
+        });
+
+        // --- 4. HÀM CHẠY CHÍNH (KHỞI ĐỘNG) ---
+        function main() {
+            if (!navigator.geolocation) {
+                statusBar.textContent = "Trình duyệt không hỗ trợ GPS. Dùng vị trí mặc định.";
+                initMap(DEFAULT_LAT, DEFAULT_LON);
+                fetchAndDrawPins(DEFAULT_LAT, DEFAULT_LON, activeFilter);
+                return;
+            }
+
+            statusBar.textContent = "Đang xin quyền truy cập vị trí...";
+            
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    // THÀNH CÔNG: Lấy được vị trí GPS
+                    currentLat = position.coords.latitude;
+                    currentLon = position.coords.longitude;
+                    
+                    statusBar.textContent = `Vị trí: ${currentLat.toFixed(5)}, ${currentLon.toFixed(5)}. Đang tải...`;
+                    
+                    initMap(currentLat, currentLon);
+                    fetchAndDrawPins(currentLat, currentLon, activeFilter);
+                },
+                (error) => {
+                    // THẤT BẠI: Người dùng từ chối hoặc có lỗi
+                    console.warn(`Lỗi GPS (Code ${error.code}): ${error.message}`);
+                    statusBar.textContent = "Lỗi GPS. Dùng vị trí mặc định.";
+                    
+                    initMap(DEFAULT_LAT, DEFAULT_LON);
+                    fetchAndDrawPins(DEFAULT_LAT, DEFAULT_LON, activeFilter);
+                }
+            );
+        }
+
+        // Chạy
+        main();
+
+    </script>
+
+</body>
+</html>

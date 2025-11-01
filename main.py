@@ -1,7 +1,8 @@
-# === main.py v0.14.0 (Seed Location Fix) ===
+# === main.py v0.15.0 (Fleet Management Endpoints) ===
 import math
 import datetime
 import uuid
+import os # <-- ĐÃ THÊM
 from enum import Enum
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, status, Path
 from typing import Optional, List
@@ -12,24 +13,31 @@ from sqlalchemy import create_engine, text, Column, String, Float, MetaData, Tab
 from sqlalchemy.orm import sessionmaker, Session
 from pydantic_settings import BaseSettings
 from passlib.context import CryptContext
+import secrets # <-- ĐÃ THÊM
 
 # --- 1. SETTINGS ---
 class Settings(BaseSettings):
     DATABASE_URL: str
+    
+    # --- 1b. SETTINGS MỚI (v0.15.0) ---
+    # Key này sẽ được dùng cho Dashboard Admin v3.0
+    ADMIN_API_KEY: str 
+    
     class Config: env_file = ".env"
 settings = Settings()
 
 # --- CONSTANTS ---
 LOW_FUEL_THRESHOLD = 20.0
-TEST_DEVICE_ID = "BOLT-TEST-001" # Thiết bị mặc định cho mocking
+TEST_DEVICE_ID = "BOLT-TEST-001" 
 
-# --- 2. DATABASE ---
+# --- 2. DATABASE (Giữ nguyên) ---
 engine = create_engine(settings.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 metadata = MetaData()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated=["auto"]) # Fixed syntax warning
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # --- 2a, 2b, 2c. BẢNG DỮ LIỆU (Giữ nguyên) ---
+# ... (Giữ nguyên các định nghĩa bảng diem_dich_vu_table, devices_table, v.v...)
 diem_dich_vu_table = Table(
     "diem_dich_vu", metadata,
     Column("id", String, primary_key=True), Column("ten", String, nullable=False),
@@ -73,7 +81,7 @@ def get_db():
     finally:
         db.close()
 
-# --- 3. PYDANTIC MODELS (Giữ nguyên) ---
+# --- 3. PYDANTIC MODELS ---
 class DiemDichVuInputModel(BaseModel): id: str; ten: str; loai: str; dia_chi: Optional[str] = None; vi_do: float; kinh_do: float
 class DiemDichVuResponseModel(BaseModel): id: str; ten: str; loai: str; dia_chi: Optional[str] = None; vi_do: float; kinh_do: float; khoang_cach_km: float
 class LocationModel(BaseModel): lat: float; lon: float
@@ -93,31 +101,36 @@ class MockLocationInput(BaseModel):
             return TEST_DEVICE_ID
         return v
 
+# --- 3e. MODEL MỚI (v0.15.0) ---
+class DeviceAdminListModel(BaseModel):
+    id: str
+    vehicle_make: Optional[str] = None
+    vehicle_model: Optional[str] = None
 
-# --- 4. LIFESPAN (ĐÃ SỬA seed_initial_data) ---
+
+# --- 4. LIFESPAN (Giữ nguyên) ---
 def seed_initial_data(db: Session):
+    # ... (Toàn bộ logic seed của bạn giữ nguyên, bao gồm cả seed vị trí)
+    # ... (CSDL_MAU, PLAINTEXT_API_KEY, HASHED_API_KEY, PLAINTEXT_PROD_KEY, v.v...)
     CSDL_MAU = [
-      { "id": "GAS001", "ten": "Cây xăng Petrolimex", "loai": "xang_dau", "dia_chi": "123 Đường ABC, Quận 1, TP. HCM", "vi_do": 10.7769, "kinh_do": 106.7009 },
-      { "id": "GAS002", "ten": "Cây xăng Comeco", "loai": "xang_dau", "dia_chi": "456 Đường DEF, Quận 3, TP. HCM", "vi_do": 10.7811, "kinh_do": 106.6982 },
-      { "id": "EV001", "ten": "Trạm sạc VinFast", "loai": "tram_sac", "dia_chi": "789 Đường GHI, Quận 1, TP. HCM", "vi_do": 10.7852, "kinh_do": 106.6954 },
-      { "id": "GARAGE001", "ten": "Garage Auto A+", "loai": "sua_chua", "dia_chi": "101 Đường JKL, Quận 10, TP. HCM", "vi_do": 10.7714, "kinh_do": 106.6682 }
+     { "id": "GAS001", "ten": "Cây xăng Petrolimex", "loai": "xang_dau", "dia_chi": "123 Đường ABC, Quận 1, TP. HCM", "vi_do": 10.7769, "kinh_do": 106.7009 },
+     { "id": "GAS002", "ten": "Cây xăng Comeco", "loai": "xang_dau", "dia_chi": "456 Đường DEF, Quận 3, TP. HCM", "vi_do": 10.7811, "kinh_do": 106.6982 },
+     { "id": "EV001", "ten": "Trạm sạc VinFast", "loai": "tram_sac", "dia_chi": "789 Đường GHI, Quận 1, TP. HCM", "vi_do": 10.7852, "kinh_do": 106.6954 },
+     { "id": "GARAGE001", "ten": "Garage Auto A+", "loai": "sua_chua", "dia_chi": "101 Đường JKL, Quận 10, TP. HCM", "vi_do": 10.7714, "kinh_do": 106.6682 }
     ]
     stmt_map = text("INSERT INTO diem_dich_vu (id, ten, loai, dia_chi, vi_do, kinh_do) VALUES (:id, :ten, :loai, :dia_chi, :vi_do, :kinh_do) ON CONFLICT (id) DO NOTHING")
     for diem in CSDL_MAU: db.execute(stmt_map, diem)
     
-    # --- SEED DEVICES ---
     PLAINTEXT_API_KEY = "bolt_secret_key_for_testing"
     HASHED_API_KEY = pwd_context.hash(PLAINTEXT_API_KEY)
     stmt_device = text("INSERT INTO devices (id, api_key_hash, vehicle_make, vehicle_model) VALUES (:id, :api_key_hash, :vehicle_make, :vehicle_model) ON CONFLICT (id) DO NOTHING")
-    # Device TEST
     db.execute(stmt_device, {"id": TEST_DEVICE_ID, "api_key_hash": HASHED_API_KEY, "vehicle_make": "ThinkPad", "vehicle_model": "DevClient"})
-    # Device LIVE
+    
     PROD_DEVICE_ID = "BOLT-RPi-001"
     PLAINTEXT_PROD_KEY = "ProdKey_RPi001_!@#"
     HASHED_PROD_KEY = pwd_context.hash(PLAINTEXT_PROD_KEY)
     db.execute(stmt_device, {"id": PROD_DEVICE_ID, "api_key_hash": HASHED_PROD_KEY, "vehicle_make": "Raspberry", "vehicle_model": "Pi 5"})
     
-    # --- THÊM VỊ TRÍ MẶC ĐỊNH (FIX LỖI 404 KHI LẤY LẦN ĐẦU) ---
     stmt_location_seed = text("""
     INSERT INTO device_locations (device_id, last_lat, last_lon, last_seen)
     VALUES (:device_id, 0.0, 0.0, NOW())
@@ -129,8 +142,10 @@ def seed_initial_data(db: Session):
     db.commit()
     print("Khởi tạo/Seed CSDL Postgres thành công (Phase 1, 2 & Initial Location).")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ... (Logic lifespan giữ nguyên)
     print("API đang khởi động... kết nối tới PostgreSQL...")
     try:
         with engine.begin() as conn: metadata.create_all(conn)
@@ -138,11 +153,11 @@ async def lifespan(app: FastAPI):
     except Exception as e: print(f"LỖI NGHIÊM TRỌNG KHI KẾT NỐI/KHỞI TẠO CSDL: {e}")
     yield; print("Máy chủ đang tắt...")
 
-# --- 5. APP (Giữ nguyên) ---
+# --- 5. APP (ĐÃ CẬP NHẬT) ---
 app = FastAPI(
     title="BOLT Network API",
     description="API lõi cho Hệ sinh thái Giao thông Thông minh BOLT",
-    version="0.14.0 (Location Seeded)",
+    version="0.15.0 (Fleet Management)", # <-- CẬP NHẬT VERSION
     lifespan=lifespan
 )
 
@@ -157,7 +172,7 @@ HAVERSINE_SQL = """( 6371 * 2 * ASIN( SQRT(
     SIN((RADIANS(kinh_do) - RADIANS(:user_lon)) / 2) ^ 2
 )))"""
 
-# --- 8. BẢO MẬT (Giữ nguyên) ---
+# --- 8. BẢO MẬT (Device - Giữ nguyên) ---
 async def get_current_device(x_device_id: str = Header(...), x_api_key: str = Header(...), db: Session = Depends(get_db)) -> str:
     stmt = text("SELECT api_key_hash FROM devices WHERE id = :device_id")
     result = db.execute(stmt, {"device_id": x_device_id}).fetchone()
@@ -166,8 +181,25 @@ async def get_current_device(x_device_id: str = Header(...), x_api_key: str = He
     if not pwd_context.verify(x_api_key, stored_hash): raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API Key")
     return x_device_id
 
-# --- 9. HÀM LOGIC NỘI BỘ ---
+# --- 8b. BẢO MẬT ADMIN (v0.15.0) ---
+async def get_admin_access(x_admin_api_key: str = Header(...)):
+    """
+    Hàm bảo mật Dependency mới, kiểm tra X-Admin-Api-Key.
+    Sử dụng so sánh an toàn (timing-safe) để chống tấn công thời gian.
+    """
+    # Lấy key bí mật từ settings (đã tải từ .env/Render env)
+    correct_key = settings.ADMIN_API_KEY
+    
+    if not secrets.compare_digest(x_admin_api_key, correct_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, 
+            detail="Invalid Admin API Key. Access Denied."
+        )
+    return True # Trả về True nếu thành công
+
+# --- 9 & 10. HÀM LOGIC NỘI BỘ & AI TRIGGER (Giữ nguyên) ---
 def _tim_diem_gan_nhat_logic(db: Session, vi_do: float, kinh_do: float, loai_diem: Optional[str] = None) -> Optional[dict]:
+    # ... (Toàn bộ logic _tim_diem_gan_nhat_logic giữ nguyên)
     params = {"user_lat": vi_do, "user_lon": kinh_do}
     base_query = f"SELECT *, {HAVERSINE_SQL} AS khoang_cach_km FROM diem_dich_vu"
     where_clause = ""
@@ -180,8 +212,8 @@ def _tim_diem_gan_nhat_logic(db: Session, vi_do: float, kinh_do: float, loai_die
         return ket_qua
     except Exception as e: print(f"--- [LỖI LOGIC] Lỗi khi tìm điểm gần nhất (nội bộ): {e} ---"); return None
 
-# --- 10. AI TRIGGER ---
 def _trigger_proactive_alerts(db: Session, device_id: str, payload: DeviceHeartbeatModel):
+    # ... (Toàn bộ logic _trigger_proactive_alerts giữ nguyên)
     vi_tri_xe = payload.location
     stmt_insert_alert = text("INSERT INTO user_alerts (alert_id, device_id, timestamp, alert_type, message, is_read) VALUES (:alert_id, :device_id, :timestamp, :alert_type, :message, false)")
     # Fuel check
@@ -208,9 +240,10 @@ def _trigger_proactive_alerts(db: Session, device_id: str, payload: DeviceHeartb
                 print("--- [AI CẢNH BÁO] Đã lưu cảnh báo Mã lỗi vào CSDL. ---")
     except Exception as e: print(f"--- [LỖI AI] Lỗi khi xử lý cảnh báo mã lỗi: {e} ---")
 
-# --- 11. API ENDPOINTS (PHASE 1) ---
+# --- 11. API ENDPOINTS (PHASE 1 - Public Maps - Giữ nguyên) ---
 @app.post("/diem-dich-vu", status_code=201, response_model=DiemDichVuInputModel)
 def them_diem_dich_vu(diem: DiemDichVuInputModel, db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     stmt = text("INSERT INTO diem_dich_vu (id, ten, loai, dia_chi, vi_do, kinh_do) VALUES (:id, :ten, :loai, :dia_chi, :vi_do, :kinh_do) ON CONFLICT (id) DO UPDATE SET ten = EXCLUDED.ten, loai = EXCLUDED.loai, dia_chi = EXCLUDED.dia_chi, vi_do = EXCLUDED.vi_do, kinh_do = EXCLUDED.kinh_do")
     try: db.execute(stmt, diem.dict()); db.commit()
     except Exception as e: db.rollback(); raise HTTPException(status_code=500, detail=f"Lỗi CSDL: {e}")
@@ -218,6 +251,7 @@ def them_diem_dich_vu(diem: DiemDichVuInputModel, db: Session = Depends(get_db))
 
 @app.get("/cac-diem-xung-quanh", response_model=List[DiemDichVuResponseModel])
 def lay_cac_diem_xung_quanh(vi_do: float, kinh_do: float, ban_kinh_km: float = Query(5.0), loai_diem: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    # ... (Gi getY:g nguyên)
     params = {"user_lat": vi_do, "user_lon": kinh_do, "radius": ban_kinh_km}; inner_query = f"SELECT *, {HAVERSINE_SQL} AS khoang_cach_km FROM diem_dich_vu"; where_clause = ""
     if loai_diem: where_clause = " WHERE loai = :loai"; params["loai"] = loai_diem
     query = text(f"SELECT * FROM ({inner_query} {where_clause}) AS subquery WHERE khoang_cach_km <= :radius ORDER BY khoang_cach_km ASC")
@@ -226,25 +260,28 @@ def lay_cac_diem_xung_quanh(vi_do: float, kinh_do: float, ban_kinh_km: float = Q
 
 @app.get("/tim-diem-gan-nhat", response_model=DiemDichVuResponseModel)
 def tim_diem_gan_nhat_api(vi_do: float, kinh_do: float, loai_diem: Optional[str] = None, db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     diem = _tim_diem_gan_nhat_logic(db, vi_do, kinh_do, loai_diem);
     if not diem: raise HTTPException(status_code=404, detail="Không tìm thấy điểm dịch vụ nào phù hợp.")
     return diem
 
-# --- 12. API ENDPOINTS (PHASE 2 & 3) ---
+# --- 12. API ENDPOINTS (PHASE 2 & 3 - Device Scoped - Giữ nguyên) ---
 @app.post("/device/heartbeat", status_code=status.HTTP_202_ACCEPTED)
 async def device_heartbeat(payload: DeviceHeartbeatModel, device_id: str = Depends(get_current_device), db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     stmt_loc = text("INSERT INTO device_locations (device_id, last_lat, last_lon, last_seen) VALUES (:device_id, :lat, :lon, :timestamp) ON CONFLICT (device_id) DO UPDATE SET last_lat = EXCLUDED.last_lat, last_lon = EXCLUDED.last_lon, last_seen = EXCLUDED.last_seen")
     stmt_obd = text("INSERT INTO obd_logs (device_id, timestamp, fuel_level, rpm, speed, error_codes) VALUES (:device_id, :timestamp, :fuel_level, :rpm, :speed, :error_codes)")
     try:
         db.execute(stmt_loc, {"device_id": device_id, "lat": payload.location.lat, "lon": payload.location.lon, "timestamp": payload.timestamp})
         db.execute(stmt_obd, {"device_id": device_id, "timestamp": payload.timestamp, "fuel_level": payload.obd_data.fuel_level, "rpm": payload.obd_data.rpm, "speed": payload.obd_data.speed, "error_codes": ",".join(payload.obd_data.error_codes) if payload.obd_data.error_codes else None})
-        _trigger_proactive_alerts(db, device_id, payload) # Trigger AI before commit
-        db.commit() # Commit logs and alerts together
+        _trigger_proactive_alerts(db, device_id, payload)
+        db.commit()
     except Exception as e: db.rollback(); raise HTTPException(status_code=500, detail=f"Lỗi CSDL khi ghi log hoặc cảnh báo: {e}")
     return {"status": "accepted"}
 
 @app.get("/device/location/last", response_model=DeviceLocationResponse)
 async def get_last_device_location(device_id: str = Depends(get_current_device), db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     stmt = text("SELECT * FROM device_locations WHERE device_id = :device_id")
     try: result = db.execute(stmt, {"device_id": device_id}).fetchone()
     except Exception as e: raise HTTPException(status_code=500, detail=f"Lỗi truy vấn CSDL: {e}")
@@ -253,12 +290,14 @@ async def get_last_device_location(device_id: str = Depends(get_current_device),
 
 @app.get("/device/alerts", response_model=List[UserAlertResponse])
 def get_device_alerts(device_id: str = Depends(get_current_device), db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     stmt = text("SELECT * FROM user_alerts WHERE device_id = :device_id AND is_read = false ORDER BY timestamp DESC")
     try: result = db.execute(stmt, {"device_id": device_id}).fetchall(); return [dict(row._mapping) for row in result]
     except Exception as e: raise HTTPException(status_code=500, detail=f"Lỗi truy vấn CSDL: {e}")
 
 @app.put("/device/alerts/{alert_id}/read", status_code=status.HTTP_204_NO_CONTENT)
 async def mark_alert_as_read(alert_id: uuid.UUID = Path(...), device_id: str = Depends(get_current_device), db: Session = Depends(get_db)):
+    # ... (Giữ nguyên)
     stmt = text("UPDATE user_alerts SET is_read = true WHERE alert_id = :alert_id AND device_id = :device_id AND is_read = false")
     try:
         result = db.execute(stmt, {"alert_id": alert_id, "device_id": device_id}); db.commit()
@@ -266,15 +305,80 @@ async def mark_alert_as_read(alert_id: uuid.UUID = Path(...), device_id: str = D
     except Exception as e: db.rollback(); raise HTTPException(status_code=500, detail=f"Lỗi CSDL khi cập nhật cảnh báo: {e}")
     return None
 
-# --- 14. ENDPOINT MỚI: MOCK LOCATION ---
+# --- 13. API ENDPOINTS (ADMIN v0.15.0) ---
+# Đây là các endpoint mới cho Bảng điều khiển Quản trị (Fleet Management)
+# Tất cả đều được bảo vệ bởi get_admin_access
+
+@app.get("/admin/devices", 
+         response_model=List[DeviceAdminListModel],
+         dependencies=[Depends(get_admin_access)])
+async def admin_get_all_devices(db: Session = Depends(get_db)):
+    """
+    [Admin] Lấy danh sách tất cả các thiết bị đã đăng ký trong hạm đội.
+    """
+    stmt = text("SELECT id, vehicle_make, vehicle_model FROM devices ORDER BY id ASC")
+    try:
+        result = db.execute(stmt).fetchall()
+        return [dict(row._mapping) for row in result]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi CSDL: {e}")
+
+@app.get("/admin/devices/{device_id}/location", 
+         response_model=DeviceLocationResponse,
+         dependencies=[Depends(get_admin_access)])
+async def admin_get_device_location(device_id: str = Path(...), db: Session = Depends(get_db)):
+    """
+    [Admin] Lấy vị trí cuối cùng của một thiết bị cụ thể.
+    (Logic tương tự get_last_device_location nhưng không cần xác thực device)
+    """
+    stmt = text("SELECT * FROM device_locations WHERE device_id = :device_id")
+    try:
+        result = db.execute(stmt, {"device_id": device_id}).fetchone()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn CSDL: {e}")
+    
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Không tìm thấy dữ liệu vị trí cho thiết bị {device_id}.")
+    return dict(result._mapping)
+
+@app.get("/admin/devices/{device_id}/alerts", 
+         response_model=List[UserAlertResponse],
+         dependencies=[Depends(get_admin_access)])
+def admin_get_device_alerts(device_id: str = Path(...), db: Session = Depends(get_db)):
+    """
+    [Admin] Lấy các cảnh báo chưa đọc của một thiết bị cụ thể.
+    """
+    stmt = text("SELECT * FROM user_alerts WHERE device_id = :device_id AND is_read = false ORDER BY timestamp DESC")
+    try:
+        result = db.execute(stmt, {"device_id": device_id}).fetchall()
+        return [dict(row._mapping) for row in result]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn CSDL: {e}")
+
+@app.put("/admin/alerts/{alert_id}/read", 
+         status_code=status.HTTP_204_NO_CONTENT,
+         dependencies=[Depends(get_admin_access)])
+async def admin_mark_alert_as_read(alert_id: uuid.UUID = Path(...), db: Session = Depends(get_db)):
+    """
+    [Admin] Đánh dấu một cảnh báo bất kỳ là đã đọc.
+    (Khác với endpoint của device, hàm này không cần device_id)
+    """
+    stmt = text("UPDATE user_alerts SET is_read = true WHERE alert_id = :alert_id AND is_read = false")
+    try:
+        result = db.execute(stmt, {"alert_id": alert_id})
+        db.commit()
+        if result.rowcount == 0:
+            # Điều này xảy ra nếu alert_id không tồn tại HOẶC nó đã được đọc
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy cảnh báo chưa đọc với ID này.")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Lỗi CSDL khi cập nhật cảnh báo: {e}")
+    return None
+
+# --- 14. ENDPOINT MỚI: MOCK LOCATION (Giữ nguyên) ---
 @app.post("/mock/location", status_code=status.HTTP_204_NO_CONTENT)
-async def mock_location_update(
-    data: MockLocationInput,
-    db: Session = Depends(get_db)
-):
-    """
-    (MOCKING TOOL) Cập nhật vị trí cuối cùng cho thiết bị thử nghiệm từ giao diện web/tool.
-    """
+async def mock_location_update(data: MockLocationInput, db: Session = Depends(get_db)):
+    # ... (Toàn bộ logic mock_location_update giữ nguyên)
     stmt_location = text("""
     INSERT INTO device_locations (device_id, last_lat, last_lon, last_seen)
     VALUES (:device_id, :lat, :lon, NOW())
